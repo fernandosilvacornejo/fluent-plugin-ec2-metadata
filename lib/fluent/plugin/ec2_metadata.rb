@@ -80,7 +80,7 @@ module Fluent
     end
 
     def set_tag(ec2_metadata)
-      if @map.values.any? { |v| v.match(/^\${tagset_/) } || @output_tag =~ /\${tagset_/
+      if @map.empty? or @map.values.any? { |v| v.match(/^\${tagset_/) } || @output_tag =~ /\${tagset_/
 
         if @aws_key_id and @aws_sec_key
           ec2 = Aws::EC2::Client.new(
@@ -106,20 +106,34 @@ module Fluent
 
     def modify_record(record, tag, tag_parts)
       placeholders = @placeholder_expander.prepare_placeholders(record, tag, tag_parts, @ec2_metadata)
-      new_record = record.dup
-      @map.each_pair { |k, v| new_record[k] = @placeholder_expander.expand(v, placeholders) }
-      new_record
+      build_new_record(record, placeholders)
     end
 
     def modify(output_tag, record, tag, tag_parts)
       placeholders = @placeholder_expander.prepare_placeholders(record, tag, tag_parts, @ec2_metadata)
-
       new_tag = @placeholder_expander.expand(output_tag, placeholders)
-
-      new_record = record.dup
-      @map.each_pair { |k, v| new_record[k] = @placeholder_expander.expand(v, placeholders) }
+      new_record = build_new_record(record, placeholders)
 
       [new_tag, new_record]
+    end
+
+    def build_new_record(record, placeholders)
+      new_record = record.dup
+      metadata_hash = {}
+
+      if @map.empty?
+        @ec2_metadata.each_pair { |k, v| metadata_hash[k] = @placeholder_expander.expand(v, placeholders) }
+      else
+        @map.each_pair { |k, v| metadata_hash[k] = @placeholder_expander.expand(v, placeholders) }
+      end
+
+      if @hash_value_field
+        new_record[hash_value_field] = metadata_hash
+      else
+        new_record.merge! metadata_hash
+      end
+
+      return new_record
     end
 
     class PlaceholderExpander
